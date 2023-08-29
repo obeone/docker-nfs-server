@@ -28,6 +28,7 @@
 ### constants
 ######################################################################################
 
+readonly ENV_VAR_NFS_DISABLE_VERSION_2='NFS_DISABLE_VERSION_2'
 readonly ENV_VAR_NFS_DISABLE_VERSION_3='NFS_DISABLE_VERSION_3'
 readonly ENV_VAR_NFS_SERVER_THREAD_COUNT='NFS_SERVER_THREAD_COUNT'
 readonly ENV_VAR_NFS_ENABLE_KERBEROS='NFS_ENABLE_KERBEROS'
@@ -219,7 +220,7 @@ stop() {
     term_process "$PATH_BIN_IDMAPD"
   fi
 
-  if is_nfs3_enabled; then
+  if is_nfs3_enabled || is_nfs2_enabled; then
     term_process "$PATH_BIN_STATD"
   fi
 
@@ -243,6 +244,12 @@ is_kerberos_requested() {
 
   [[ -n "${!ENV_VAR_NFS_ENABLE_KERBEROS}" ]] && return 0 || return 1
 }
+
+is_nfs2_enabled() {
+
+  [[ -z "${!ENV_VAR_NFS_DISABLE_VERSION_2}" ]] && return 0 || return 1
+}
+
 
 is_nfs3_enabled() {
 
@@ -398,8 +405,12 @@ init_state_nfs_version() {
 
   local -r requested_version="${!ENV_VAR_NFS_VERSION:-$DEFAULT_NFS_VERSION}"
 
-  echo "$requested_version" | grep -Eq '^3$|^4(\.[1-2])?$'
-  on_failure bail "please set $ENV_VAR_NFS_VERSION to one of: 4.2, 4.1, 4, 3"
+  echo "$requested_version" | grep -Eq '^[23]$|^4(\.[1-2])?$'
+  on_failure bail "please set $ENV_VAR_NFS_VERSION to one of: 4.2, 4.1, 4, 3, 2"
+
+  if ! is_nfs2_enabled && [[ "$requested_version" = '2' ]]; then
+    bail 'you cannot simultaneously enable and disable NFS version 2'
+  fi
 
   if ! is_nfs3_enabled && [[ "$requested_version" = '3' ]]; then
     bail 'you cannot simultaneously enable and disable NFS version 3'
@@ -534,7 +545,11 @@ boot_helper_mount() {
 boot_helper_get_version_flags() {
 
   local -r requested_version="${state[$STATE_NFS_VERSION]}"
-  local flags=('--nfs-version' "$requested_version" '--no-nfs-version' 2)
+  local flags=('--nfs-version' "$requested_version")
+
+  if ! is_nfs2_enabled; then
+    flags+=('--no-nfs-version' 2)
+  fi
 
   if ! is_nfs3_enabled; then
     flags+=('--no-nfs-version' 3)
@@ -660,7 +675,7 @@ boot_main_idmapd() {
 
 boot_main_statd() {
 
-  if ! is_nfs3_enabled; then
+  if ! is_nfs3_enabled && ! is_nfs2_enabled; then
     return
   fi
 
@@ -717,7 +732,7 @@ boot_main_nfsd() {
   # rpcbind isn't required for NFSv4, but if it's not running then nfsd takes over 5 minutes to start up.
   # it's a bug in either nfs-utils or the kernel, and the code of both is over my head.
   # so as a workaround we start rpcbind always and (in v4-only scenarios) kill it after nfsd starts up
-  if ! is_nfs3_enabled; then
+  if ! is_nfs3_enabled && ! is_nfs2_enabled; then
     term_process "$PATH_BIN_RPCBIND"
   fi
 }
@@ -770,9 +785,18 @@ summarize_nfs_versions() {
       ;;
   esac
 
-  if is_nfs3_enabled && [[ "$reqd_version" =~ ^4 ]]; then
+  if [[ "$reqd_version" =~ ^4 ]]; then
+    versions=", $versions"
+  fi
+  if is_nfs3_enabled; then
     versions="$versions, 3"
   fi
+  if is_nfs2_enabled; then
+    versions="$versions, 2"
+  fi
+
+  # remove the leading comma
+  versions="${versions:2}"
 
   log "list of enabled NFS protocol versions: $versions"
 }
@@ -807,14 +831,14 @@ summarize_ports() {
   local -r port_mountd="${state[$STATE_MOUNTD_PORT]}"
   local -r port_statd_in="${state[$STATE_STATD_PORT_IN]}"
 
-  if ! is_nfs3_enabled; then
-    log "list of container ports that should be exposed: $port_nfsd (TCP)"
+  if ! is_nfs3_enabled && ! is_nfs2_enabled; then
+    log "list of container ports that should be exposed: ${port_nfsd} (TCP)"
   else
     log 'list of container ports that should be exposed:'
     log '  111 (TCP and UDP)'
-    log "  $port_nfsd (TCP and UDP)"
-    log "  $port_statd_in (TCP and UDP)"
-    log "  $port_mountd (TCP and UDP)"
+    log "  ${port_nfsd} (TCP and UDP)"
+    log "  ${port_statd_in} (TCP and UDP)"
+    log "  ${port_mountd} (TCP and UDP)"
   fi
 }
 
