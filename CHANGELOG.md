@@ -4,21 +4,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
-## [unreleased]
+## [2.2.3] - 2023-09-29
 
-### Fixed
-* Broken links in README, both on GitHub and Docker Hub ([#29](https://github.com/ehough/docker-nfs-server/issues/29), [#35](https://github.com/ehough/docker-nfs-server/issues/35))
-
-### Changed
-* Use pure Bash for uppercasing strings ([#36](https://github.com/ehough/docker-nfs-server/issues/36))
-
-## [2.2.1] - 2019-03-15
-
-### Fixed
-* `rpc.statd` debug output was invisible
-
-### Changed
-* Further de-cluttered non-debug logging output
+* Fixed an old reference to NFSv2 on nfsd start, leading to crash ([#4] [#7])
+* Update base image to alpine v3.18
 
 ## [2.2.0] - 2019-03-08
 
@@ -28,7 +17,7 @@ during regular, non-debug operation.
 
 ### Fixed
 * `idmapd` would not start when `NFS_VERSION=3`
-* allow Kerberos without `idmapd`. Most users will probably want to run them together, but 
+* allow Kerberos without `idmapd`. Most users will probably want to run them together, but
 it isn't required.
 * `NFS_VERSION` environment variable sanity check allowed invalid values
 * status code of `rpc.svcgssd` was not properly checked
