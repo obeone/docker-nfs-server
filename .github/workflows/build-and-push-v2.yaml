@@ -1,7 +1,5 @@
 name: Build and publish
 on:
-  schedule:
-    - cron: "23 3 * * *"
   push:
     branches:
       - main
