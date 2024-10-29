@@ -31,6 +31,8 @@
 readonly ENV_VAR_NFS_DISABLE_VERSION_3='NFS_DISABLE_VERSION_3'
 readonly ENV_VAR_NFS_SERVER_THREAD_COUNT='NFS_SERVER_THREAD_COUNT'
 readonly ENV_VAR_NFS_ENABLE_KERBEROS='NFS_ENABLE_KERBEROS'
+readonly ENV_VAR_NFS_ENABLE_NFSDCLD='NFS_ENABLE_NFSDCLD'
+readonly ENV_VAR_NFS_NFSDCLD_STORAGE_DIR='NFS_NFSDCLD_STORAGE_DIR'
 readonly ENV_VAR_NFS_PORT_MOUNTD='NFS_PORT_MOUNTD'
 readonly ENV_VAR_NFS_PORT='NFS_PORT'
 readonly ENV_VAR_NFS_PORT_STATD_IN='NFS_PORT_STATD_IN'
@@ -51,6 +53,7 @@ readonly PATH_BIN_NFSD='/usr/sbin/rpc.nfsd'
 readonly PATH_BIN_RPCBIND='/sbin/rpcbind'
 readonly PATH_BIN_RPC_SVCGSSD='/usr/sbin/rpc.svcgssd'
 readonly PATH_BIN_STATD='/sbin/rpc.statd'
+readonly PATH_BIN_NFSDCLD='/usr/sbin/nfsdcld'
 
 readonly PATH_FILE_ETC_EXPORTS='/etc/exports'
 readonly PATH_FILE_ETC_IDMAPD_CONF='/etc/idmapd.conf'
@@ -74,6 +77,7 @@ readonly STATE_MOUNTD_PORT='mountd_port'
 readonly STATE_STATD_PORT_IN='statd_port_in'
 readonly STATE_STATD_PORT_OUT='statd_port_out'
 readonly STATE_NFS_VERSION='nfs_version'
+readonly STATE_NFSDCLD_STORAGE_DIR='nfsdcld_storage_dir'
 
 # "state" is our only global variable, which is an associative array of normalized data
 declare -A state
@@ -223,6 +227,10 @@ stop() {
     term_process "$PATH_BIN_STATD"
   fi
 
+  if is_nfsdcld_requested; then
+    term_process "$PATH_BIN_NFSDCLD"
+  fi
+
   term_process "$PATH_BIN_MOUNTD"
   stop_exportfs
   term_process "$PATH_BIN_RPCBIND"
@@ -242,6 +250,11 @@ stop() {
 is_kerberos_requested() {
 
   [[ -n "${!ENV_VAR_NFS_ENABLE_KERBEROS}" ]] && return 0 || return 1
+}
+
+is_nfsdcld_requested() {
+
+  [[ -n "${!ENV_VAR_NFS_ENABLE_NFSDCLD}" ]] && return 0 || return 1
 }
 
 is_nfs3_enabled() {
@@ -406,6 +419,11 @@ init_state_nfs_version() {
   fi
 
   state[$STATE_NFS_VERSION]=$requested_version
+}
+
+init_state_nfsdcld_storage_dir() {
+
+  state[$STATE_NFSDCLD_STORAGE_DIR]=${!ENV_VAR_NFS_NFSDCLD_STORAGE_DIR}
 }
 
 init_trap() {
@@ -722,6 +740,34 @@ boot_main_nfsd() {
   fi
 }
 
+boot_main_nfsdcld() {
+
+  if ! is_nfsdcld_requested; then
+    return
+  fi
+
+  # https://man7.org/linux/man-pages/man8/nfsdcld.8.html
+  #
+  # --debug                   enable debug level logging
+  # --foreground              runs the daemon in the foreground and prints all output to stderr
+  # --storagedir=storage_dir  directory where stable storage information should be kept.
+  #                           the default value is /var/lib/nfs/nfsdcld
+
+  local args=()
+  local func=boot_helper_start_daemon
+  if is_logging_debug; then
+    args+=('--debug' '--foreground')
+    func=boot_helper_start_non_daemon
+  fi
+
+  local -r storage_dir="${state[$STATE_NFSDCLD_STORAGE_DIR]}"
+  if [[ -n $storage_dir ]]; then
+    args+=('--storagedir' "$storage_dir")
+  fi
+
+  $func 'starting nfsdcld' $PATH_BIN_NFSDCLD "${args[@]}"
+}
+
 boot_main_svcgssd() {
 
   if ! is_kerberos_requested; then
@@ -831,6 +877,7 @@ init() {
   init_state_nfsd_thread_count
   init_state_ports
   init_state_nfs_version
+  init_state_nfsdcld_storage_dir
   init_exports
   init_runtime_assertions
   init_trap
@@ -846,6 +893,7 @@ boot() {
   boot_main_rpcbind
   boot_main_exportfs
   boot_main_mountd
+  boot_main_nfsdcld
   boot_main_statd
   boot_main_idmapd
   boot_main_nfsd
